@@ -119,7 +119,7 @@ internal static class HttpUtilities
                 throw new InvalidDataException($"Invalid status code value: {GetAsciiStringEscaped(value)}");
             }
 
-            var newValue = statusCode + (int)b;
+            var newValue = statusCode * 10 + (int)b;
 
             if (newValue < statusCode)
             {

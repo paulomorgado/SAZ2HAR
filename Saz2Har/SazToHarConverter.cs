@@ -788,7 +788,7 @@ internal sealed class SazToHarConverter : IDisposable
 
     private MemoryStream GetHttpMessageStream(ZipEntry zipEntry)
     {
-        var buffer = this.messageStream ??= new(0x8000000);
+        var buffer = this.messageStream ??= new(0x20000);
         buffer.SetLength(0);
 
         using var zipStream = zipEntry.OpenReader();
@@ -802,7 +802,7 @@ internal sealed class SazToHarConverter : IDisposable
 
     private MemoryStream GetAuxStream()
     {
-        var buffer = this.auxStream ??= new(0x8000000);
+        var buffer = this.auxStream ??= new(0x20000);
 
         buffer.SetLength(0);
 
@@ -813,7 +813,7 @@ internal sealed class SazToHarConverter : IDisposable
 
     private MemoryStream GetEncodedStream(ReadOnlyMemory<byte> compressedBytes)
     {
-        var buffer = this.encodedStream ??= new(0x8000000);
+        var buffer = this.encodedStream ??= new(0x20000);
 
         buffer.SetLength(0);
 
