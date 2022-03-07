@@ -24,37 +24,6 @@ namespace PauloMorgado.Tools.SazToHar;
 /// <seealso cref="https://github.com/dotnet/aspnetcore/blob/main/src/Servers/Kestrel/Core/src/Internal/Http/HttpParser.cs"/>
 internal sealed class SazToHarConverter : IDisposable
 {
-    // byte types don't have a data type annotation so we pre-cast them; to avoid in-place casts
-#pragma warning disable CA1823 // Avoid unused private fields
-    private const byte ByteCR = (byte)'\r';
-    private const byte ByteLF = (byte)'\n';
-    private const byte ByteColon = (byte)':';
-    private const byte ByteEquals = (byte)'=';
-    private const byte ByteSemicolon = (byte)';';
-    private const byte ByteSpace = (byte)' ';
-    private const byte ByteTab = (byte)'\t';
-    private const byte ByteQuestionMark = (byte)'?';
-    private const byte BytePercentage = (byte)'%';
-    private static readonly byte[] whiteSpaceBytes = new byte[] { ByteSpace, ByteTab, };
-    private static readonly byte[] singleLineBreakBytes = new byte[] { ByteCR, ByteLF, };
-    private static readonly byte[] doubleLineBreakBytes = new byte[] { ByteCR, ByteLF, ByteCR, ByteLF, };
-    private static readonly byte[] connectAsciiBytes = Encoding.ASCII.GetBytes("connect");
-    private static readonly byte[] cookieAsciiBytes = Encoding.ASCII.GetBytes("cookie");
-    private static readonly byte[] setCookieAsciiBytes = Encoding.ASCII.GetBytes("set-cookie");
-    private static readonly byte[] contentTypeAsciiBytes = Encoding.ASCII.GetBytes("content-type");
-    private static readonly byte[] transferEncodignAsciiBytes = Encoding.ASCII.GetBytes("transfer-encoding");
-    private static readonly byte[] contentEncodignAsciiBytes = Encoding.ASCII.GetBytes("content-encoding");
-    private static readonly byte[] chunkedAsciiBytes = Encoding.ASCII.GetBytes("chunked");
-    private static readonly byte[] gzipAsciiBytes = Encoding.ASCII.GetBytes("gzip");
-    private static readonly byte[] deflateAsciiBytes = Encoding.ASCII.GetBytes("deflate");
-    private static readonly byte[] brotliAsciiBytes = Encoding.ASCII.GetBytes("brotli");
-    private static readonly byte[] textContentTypePreffixAsciiBytes = Encoding.ASCII.GetBytes("text/");
-    private static readonly byte[] applicationJsonContentTypePreffixAsciiBytes = Encoding.ASCII.GetBytes("application/json");
-    private static readonly byte[] applicationJsonStreamContentTypePreffixAsciiBytes = Encoding.ASCII.GetBytes("application/x-json-stream");
-    private static readonly byte[] applicationXmlContentTypePreffixAsciiBytes = Encoding.ASCII.GetBytes("application/xml");
-    private static readonly byte[] applicationFormEncodedContentTypePreffixAsciiBytes = Encoding.ASCII.GetBytes("application/x-www-form-urlencoded");
-    private static readonly byte[] charSetContentTypeEncodingPreffixAsciiBytes = Encoding.ASCII.GetBytes(";charset=");
-    private static readonly byte[] utf8EncodingNameAsciiBytes = Encoding.ASCII.GetBytes(Encoding.UTF8.WebName);
 #pragma warning restore CA1823 // Avoid unused private fields
     private Ionic.Zip.ZipFile zipFile;
     private ExceptionDispatchInfo error;
@@ -258,13 +227,13 @@ internal sealed class SazToHarConverter : IDisposable
             WriteRequestHttpCookies(
                 outputJsonWriter,
                 httpHeaders
-                    .Where(h => h.Key.Span.SequenceEqual(cookieAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+                    .Where(h => h.Key.Span.SequenceEqual(HttpUtilities.cookieAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
                     .Select(h => h.Value));
 
             this.WritePostData(
                 outputJsonWriter,
                 httpMessageBytes,
-                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(contentTypeAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
+                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(HttpUtilities.contentTypeAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
         }
 
         outputJsonWriter.WriteEndObject();
@@ -273,7 +242,7 @@ internal sealed class SazToHarConverter : IDisposable
     private static void ParseRequestLine(ref ReadOnlyMemory<byte> httpMessageBytes, out ReadOnlySpan<byte> method, out ReadOnlySpan<byte> url, out ReadOnlySpan<byte> httpVersion)
     {
         if (httpMessageBytes.IsEmpty
-            || !httpMessageBytes.TryReadTo(out var requestLine, singleLineBreakBytes, true, false)
+            || !httpMessageBytes.TryReadTo(out var requestLine, HttpUtilities.singleLineBreakBytes, true, false)
             || requestLine.IsEmpty)
         {
             throw new InvalidDataException($"Empty request line.");
@@ -281,13 +250,13 @@ internal sealed class SazToHarConverter : IDisposable
 
         var remaining = requestLine;
 
-        if (!remaining.TryReadTo(out method, ByteSpace, true, false)
+        if (!remaining.TryReadTo(out method, HttpUtilities.ByteSpace, true, false)
             || remaining.IsEmpty)
         {
             throw new InvalidDataException($"Invalid request line: {requestLine.GetAsciiStringEscaped()}");
         }
 
-        if (!remaining.TryReadTo(out url, ByteSpace, true, false)
+        if (!remaining.TryReadTo(out url, HttpUtilities.ByteSpace, true, false)
             || remaining.IsEmpty)
         {
             throw new InvalidDataException($"Invalid request line: {requestLine.GetAsciiStringEscaped()}");
@@ -298,7 +267,7 @@ internal sealed class SazToHarConverter : IDisposable
 
     private static void WriteQueryString(Utf8JsonWriter outputJsonWriter, ReadOnlySpan<byte> url)
     {
-        var queryStart = url.IndexOf(ByteQuestionMark) + 1;
+        var queryStart = url.IndexOf(HttpUtilities.ByteQuestionMark) + 1;
         var queryString = HttpUtilities.GetAsciiString(queryStart >= 0 ? url[queryStart..] : default).AsMemory();
 
         WriteParams(outputJsonWriter, queryString, "queryString");
@@ -366,7 +335,7 @@ internal sealed class SazToHarConverter : IDisposable
             WriteResponseHttpCookies(
                 outputJsonWriter,
                 httpHeaders
-                    .Where(h => h.Key.Span.SequenceEqual(setCookieAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+                    .Where(h => h.Key.Span.SequenceEqual(HttpUtilities.setCookieAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
                     .Select(h => h.Value));
 
             this.WriteResponseBody(
@@ -381,7 +350,7 @@ internal sealed class SazToHarConverter : IDisposable
     private static void ParseResponseLine(ref ReadOnlyMemory<byte> httpMessageBytes, out ReadOnlySpan<byte> httpVersion, out ReadOnlySpan<byte> statusCode, out ReadOnlySpan<byte> statusText)
     {
         if (httpMessageBytes.IsEmpty
-            || !httpMessageBytes.TryReadTo(out var responseLine, singleLineBreakBytes, true, false)
+            || !httpMessageBytes.TryReadTo(out var responseLine, HttpUtilities.singleLineBreakBytes, true, false)
             || responseLine.IsEmpty)
         {
             throw new InvalidDataException($"Empty response line.");
@@ -389,13 +358,13 @@ internal sealed class SazToHarConverter : IDisposable
 
         var remaining = responseLine;
 
-        if (!remaining.TryReadTo(out httpVersion, ByteSpace, true, false)
+        if (!remaining.TryReadTo(out httpVersion, HttpUtilities.ByteSpace, true, false)
             || remaining.IsEmpty)
         {
             throw new InvalidDataException($"Invalid response line: {responseLine.GetAsciiStringEscaped()}");
         }
 
-        if (!remaining.TryReadTo(out statusCode, ByteSpace, true, true))
+        if (!remaining.TryReadTo(out statusCode, HttpUtilities.ByteSpace, true, true))
         {
             throw new InvalidDataException($"Invalid response line: {responseLine.GetAsciiStringEscaped()}");
         }
@@ -420,16 +389,16 @@ internal sealed class SazToHarConverter : IDisposable
         {
             this.UnchunkContent(
                 ref httpMessageBytes,
-                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(transferEncodignAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
+                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(HttpUtilities.transferEncodignAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
 
             this.DecompressContent(
                 ref httpMessageBytes,
-                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(contentEncodignAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
+                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(HttpUtilities.contentEncodignAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
 
             this.WriteContent(
                 outputJsonWriter,
                 httpMessageBytes,
-                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(contentTypeAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
+                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(HttpUtilities.contentTypeAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
         }
 #pragma warning disable CA1031 // Do not catch general exception types
         catch (Exception ex)
@@ -449,7 +418,7 @@ internal sealed class SazToHarConverter : IDisposable
 
         while (true)
         {
-            var idx = httpMessageBytes.Span.IndexOf(singleLineBreakBytes);
+            var idx = httpMessageBytes.Span.IndexOf(HttpUtilities.singleLineBreakBytes);
 
             if (idx < 0)
             {
@@ -465,7 +434,7 @@ internal sealed class SazToHarConverter : IDisposable
             var header = httpMessageBytes[..idx];
             httpMessageBytes = httpMessageBytes[(idx + 2)..];
 
-            idx = header.Span.IndexOfAny(ByteColon, ByteSpace, ByteTab);
+            idx = header.Span.IndexOfAny(HttpUtilities.ByteColon, HttpUtilities.ByteSpace, HttpUtilities.ByteTab);
 
             if (idx < 1 || idx >= header.Span.Length)
             {
@@ -474,7 +443,7 @@ internal sealed class SazToHarConverter : IDisposable
 
             var name = header[..idx];
 
-            var value = header[(idx + 1)..].Trim<byte>(whiteSpaceBytes);
+            var value = header[(idx + 1)..].Trim<byte>(HttpUtilities.whiteSpaceBytes);
 
             httpHeadersList.Add(new(name, value));
         }
@@ -483,7 +452,7 @@ internal sealed class SazToHarConverter : IDisposable
     private void UnchunkContent(ref ReadOnlyMemory<byte> httpMessageBytes, ReadOnlySpan<byte> transferEncodingBytes)
     {
         if (httpMessageBytes.IsEmpty || transferEncodingBytes.IsEmpty
-            || !transferEncodingBytes.SequenceEqual(chunkedAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+            || !transferEncodingBytes.SequenceEqual(HttpUtilities.chunkedAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
         {
             return;
         }
@@ -494,7 +463,7 @@ internal sealed class SazToHarConverter : IDisposable
         for (var chunkStart = 0; chunkStart < bytes.Length - 3;)
         {
             var i = chunkStart;
-            while (i < bytes.Length - 3 && bytes[i] != ByteCR && bytes[i] != ByteLF)
+            while (i < bytes.Length - 3 && bytes[i] != HttpUtilities.ByteCR && bytes[i] != HttpUtilities.ByteLF)
             {
                 i++;
             }
@@ -543,7 +512,7 @@ internal sealed class SazToHarConverter : IDisposable
             return;
         }
 
-        if (contentEncodingBytes.SequenceEqual(gzipAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+        if (contentEncodingBytes.SequenceEqual(HttpUtilities.gzipAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
         {
             var sourceStream = this.GetEncodedStream(httpMessageBytes);
             var messageStream = this.GetAuxStream();
@@ -560,7 +529,7 @@ internal sealed class SazToHarConverter : IDisposable
 
             httpMessageBytes = messageStream.AsReadOnlyMemory();
         }
-        else if (contentEncodingBytes.SequenceEqual(deflateAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+        else if (contentEncodingBytes.SequenceEqual(HttpUtilities.deflateAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
         {
             var sourceStream = this.GetEncodedStream(httpMessageBytes);
             var messageStream = this.GetAuxStream();
@@ -569,7 +538,7 @@ internal sealed class SazToHarConverter : IDisposable
 
             httpMessageBytes = messageStream.AsReadOnlyMemory();
         }
-        else if (contentEncodingBytes.SequenceEqual(brotliAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+        else if (contentEncodingBytes.SequenceEqual(HttpUtilities.brotliAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
         {
             var sourceStream = this.GetEncodedStream(httpMessageBytes);
             var messageStream = this.GetAuxStream();
@@ -681,20 +650,20 @@ internal sealed class SazToHarConverter : IDisposable
 
         if (!contentTypeDefinitionBytes.IsEmpty)
         {
-            contentTypeDefinitionBytes.TryReadTo(out var contentTypeBytes, ByteSemicolon, true, true);
-            contentTypeBytes = contentTypeBytes.Trim(whiteSpaceBytes);
+            contentTypeDefinitionBytes.TryReadTo(out var contentTypeBytes, HttpUtilities.ByteSemicolon, true, true);
+            contentTypeBytes = contentTypeBytes.Trim(HttpUtilities.whiteSpaceBytes);
 
             var encoding = Encoding.UTF8;
 
             var isForm = false;
 
-            if (contentTypeBytes.SequenceEqual(textContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
-                || contentTypeBytes.SequenceEqual(applicationJsonContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
-                || contentTypeBytes.SequenceEqual(applicationJsonStreamContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
-                || contentTypeBytes.SequenceEqual(applicationXmlContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
-                || (isForm = contentTypeBytes.SequenceEqual(applicationFormEncodedContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)))
+            if (contentTypeBytes.SequenceEqual(HttpUtilities.textContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
+                || contentTypeBytes.SequenceEqual(HttpUtilities.applicationJsonContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
+                || contentTypeBytes.SequenceEqual(HttpUtilities.applicationJsonStreamContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
+                || contentTypeBytes.SequenceEqual(HttpUtilities.applicationXmlContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
+                || (isForm = contentTypeBytes.SequenceEqual(HttpUtilities.applicationFormEncodedContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)))
             {
-                contentTypeDefinitionBytes = contentTypeDefinitionBytes.Trim(whiteSpaceBytes);
+                contentTypeDefinitionBytes = contentTypeDefinitionBytes.Trim(HttpUtilities.whiteSpaceBytes);
 
                 if (!contentTypeDefinitionBytes.IsEmpty)
                 {

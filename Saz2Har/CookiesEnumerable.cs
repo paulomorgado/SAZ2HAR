@@ -48,7 +48,7 @@ internal readonly struct CookiesEnumerable
         internal Enumerator(ReadOnlyMemory<byte> cookie)
         {
             this.Current = default;
-            this.cookies = cookie.IsEmpty || cookie.Span[0] != '?'
+            this.cookies = cookie.IsEmpty || cookie.Span[0] != HttpUtilities.ByteQuestionMark
                 ? cookie
                 : cookie.Slice(1);
         }
@@ -61,7 +61,7 @@ internal readonly struct CookiesEnumerable
             {
                 // Chomp off the next segment
                 ReadOnlyMemory<byte> segment;
-                var delimiterIndex = this.cookies.Span.IndexOf((byte)';');
+                var delimiterIndex = this.cookies.Span.IndexOf(HttpUtilities.ByteSemicolon);
                 if (delimiterIndex >= 0)
                 {
                     segment = this.cookies.Slice(0, delimiterIndex);
