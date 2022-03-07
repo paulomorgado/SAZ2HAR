@@ -5,11 +5,44 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics.X86;
 using System.Runtime.Intrinsics;
+using System.Text;
 
 namespace PauloMorgado.Tools.SazToHar;
 
-internal static class HttpUtilities
+internal static  class HttpUtilities
 {
+    // byte types don't have a data type annotation so we pre-cast them; to avoid in-place casts
+    public const byte ByteCR = (byte)'\r';
+    public const byte ByteLF = (byte)'\n';
+    public const byte ByteColon = (byte)':';
+    public const byte ByteEquals = (byte)'=';
+    public const byte ByteSemicolon = (byte)';';
+    public const byte ByteSpace = (byte)' ';
+    public const byte ByteTab = (byte)'\t';
+    public const byte ByteQuestionMark = (byte)'?';
+    public const byte BytePercentage = (byte)'%';
+
+    public static readonly byte[] whiteSpaceBytes = new byte[] { ByteSpace, ByteTab, };
+    public static readonly byte[] singleLineBreakBytes = new byte[] { ByteCR, ByteLF, };
+    public static readonly byte[] doubleLineBreakBytes = new byte[] { ByteCR, ByteLF, ByteCR, ByteLF, };
+    public static readonly byte[] connectAsciiBytes = Encoding.ASCII.GetBytes("connect");
+    public static readonly byte[] cookieAsciiBytes = Encoding.ASCII.GetBytes("cookie");
+    public static readonly byte[] setCookieAsciiBytes = Encoding.ASCII.GetBytes("set-cookie");
+    public static readonly byte[] contentTypeAsciiBytes = Encoding.ASCII.GetBytes("content-type");
+    public static readonly byte[] transferEncodignAsciiBytes = Encoding.ASCII.GetBytes("transfer-encoding");
+    public static readonly byte[] contentEncodignAsciiBytes = Encoding.ASCII.GetBytes("content-encoding");
+    public static readonly byte[] chunkedAsciiBytes = Encoding.ASCII.GetBytes("chunked");
+    public static readonly byte[] gzipAsciiBytes = Encoding.ASCII.GetBytes("gzip");
+    public static readonly byte[] deflateAsciiBytes = Encoding.ASCII.GetBytes("deflate");
+    public static readonly byte[] brotliAsciiBytes = Encoding.ASCII.GetBytes("brotli");
+    public static readonly byte[] textContentTypePreffixAsciiBytes = Encoding.ASCII.GetBytes("text/");
+    public static readonly byte[] applicationJsonContentTypePreffixAsciiBytes = Encoding.ASCII.GetBytes("application/json");
+    public static readonly byte[] applicationJsonStreamContentTypePreffixAsciiBytes = Encoding.ASCII.GetBytes("application/x-json-stream");
+    public static readonly byte[] applicationXmlContentTypePreffixAsciiBytes = Encoding.ASCII.GetBytes("application/xml");
+    public static readonly byte[] applicationFormEncodedContentTypePreffixAsciiBytes = Encoding.ASCII.GetBytes("application/x-www-form-urlencoded");
+    public static readonly byte[] charSetContentTypeEncodingPreffixAsciiBytes = Encoding.ASCII.GetBytes(";charset=");
+    public static readonly byte[] utf8EncodingNameAsciiBytes = Encoding.ASCII.GetBytes(Encoding.UTF8.WebName);
+
     private static readonly char[] HexDigits = new[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', };
 
     public static unsafe string GetAsciiStringEscaped(this ReadOnlySpan<byte> span, int maxChars = 128)

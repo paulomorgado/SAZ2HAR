@@ -115,7 +115,7 @@ internal static class MemoryExtensions
         {
             var b = bytes[i];
 
-            if (b >= 65 && b <= 90)
+            if (b is >= 65 and <= 90)
             {
                 if (buffer is null)
                 {
