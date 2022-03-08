@@ -14,6 +14,7 @@ using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using static PauloMorgado.Tools.SazToHar.HttpUtilities;
 
 namespace PauloMorgado.Tools.SazToHar;
 
@@ -29,9 +30,7 @@ internal sealed class SazToHarConverter : IDisposable
     private ExceptionDispatchInfo error;
     private Dictionary<int, (ZipEntry client, ZipEntry server, ZipEntry metadata)> frames;
     private int[] frameIds;
-    private MemoryStream? messageStream;
-    private MemoryStream? encodedStream;
-    private MemoryStream? auxStream;
+    private MemoryStream? memory;
     private char[]? charBuffer;
     private List<KeyValuePair<ReadOnlyMemory<byte>, ReadOnlyMemory<byte>>>? httpHeadersList;
     private bool isDisposed;
@@ -199,7 +198,11 @@ internal sealed class SazToHarConverter : IDisposable
 
         if (this.frames.TryGetValue(frameId, out var frame))
         {
+            this.InitMemory();
+
             this.WriteRequest(outputJsonWriter, frame.client);
+
+            this.InitMemory();
 
             this.WriteResponse(outputJsonWriter, frame.server);
         }
@@ -227,13 +230,13 @@ internal sealed class SazToHarConverter : IDisposable
             WriteRequestHttpCookies(
                 outputJsonWriter,
                 httpHeaders
-                    .Where(h => h.Key.Span.SequenceEqual(HttpUtilities.cookieAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+                    .Where(h => h.Key.Span.SequenceEqual(CookieAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
                     .Select(h => h.Value));
 
             this.WritePostData(
                 outputJsonWriter,
                 httpMessageBytes,
-                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(HttpUtilities.contentTypeAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
+                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(ContentTypeAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
         }
 
         outputJsonWriter.WriteEndObject();
@@ -242,7 +245,7 @@ internal sealed class SazToHarConverter : IDisposable
     private static void ParseRequestLine(ref ReadOnlyMemory<byte> httpMessageBytes, out ReadOnlySpan<byte> method, out ReadOnlySpan<byte> url, out ReadOnlySpan<byte> httpVersion)
     {
         if (httpMessageBytes.IsEmpty
-            || !httpMessageBytes.TryReadTo(out var requestLine, HttpUtilities.singleLineBreakBytes, true, false)
+            || !httpMessageBytes.TryReadTo(out var requestLine, SingleLineBreakBytes, true, false)
             || requestLine.IsEmpty)
         {
             throw new InvalidDataException($"Empty request line.");
@@ -250,13 +253,13 @@ internal sealed class SazToHarConverter : IDisposable
 
         var remaining = requestLine;
 
-        if (!remaining.TryReadTo(out method, HttpUtilities.ByteSpace, true, false)
+        if (!remaining.TryReadTo(out method, ByteSpace, true, false)
             || remaining.IsEmpty)
         {
             throw new InvalidDataException($"Invalid request line: {requestLine.GetAsciiStringEscaped()}");
         }
 
-        if (!remaining.TryReadTo(out url, HttpUtilities.ByteSpace, true, false)
+        if (!remaining.TryReadTo(out url, ByteSpace, true, false)
             || remaining.IsEmpty)
         {
             throw new InvalidDataException($"Invalid request line: {requestLine.GetAsciiStringEscaped()}");
@@ -267,8 +270,8 @@ internal sealed class SazToHarConverter : IDisposable
 
     private static void WriteQueryString(Utf8JsonWriter outputJsonWriter, ReadOnlySpan<byte> url)
     {
-        var queryStart = url.IndexOf(HttpUtilities.ByteQuestionMark) + 1;
-        var queryString = HttpUtilities.GetAsciiString(queryStart >= 0 ? url[queryStart..] : default).AsMemory();
+        var queryStart = url.IndexOf(ByteQuestionMark) + 1;
+        var queryString = (queryStart >= 0 ? url[queryStart..] : default).GetAsciiString().AsMemory();
 
         WriteParams(outputJsonWriter, queryString, "queryString");
     }
@@ -335,7 +338,7 @@ internal sealed class SazToHarConverter : IDisposable
             WriteResponseHttpCookies(
                 outputJsonWriter,
                 httpHeaders
-                    .Where(h => h.Key.Span.SequenceEqual(HttpUtilities.setCookieAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+                    .Where(h => h.Key.Span.SequenceEqual(SetCookieAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
                     .Select(h => h.Value));
 
             this.WriteResponseBody(
@@ -350,7 +353,7 @@ internal sealed class SazToHarConverter : IDisposable
     private static void ParseResponseLine(ref ReadOnlyMemory<byte> httpMessageBytes, out ReadOnlySpan<byte> httpVersion, out ReadOnlySpan<byte> statusCode, out ReadOnlySpan<byte> statusText)
     {
         if (httpMessageBytes.IsEmpty
-            || !httpMessageBytes.TryReadTo(out var responseLine, HttpUtilities.singleLineBreakBytes, true, false)
+            || !httpMessageBytes.TryReadTo(out var responseLine, SingleLineBreakBytes, true, false)
             || responseLine.IsEmpty)
         {
             throw new InvalidDataException($"Empty response line.");
@@ -358,13 +361,13 @@ internal sealed class SazToHarConverter : IDisposable
 
         var remaining = responseLine;
 
-        if (!remaining.TryReadTo(out httpVersion, HttpUtilities.ByteSpace, true, false)
+        if (!remaining.TryReadTo(out httpVersion, ByteSpace, true, false)
             || remaining.IsEmpty)
         {
             throw new InvalidDataException($"Invalid response line: {responseLine.GetAsciiStringEscaped()}");
         }
 
-        if (!remaining.TryReadTo(out statusCode, HttpUtilities.ByteSpace, true, true))
+        if (!remaining.TryReadTo(out statusCode, ByteSpace, true, true))
         {
             throw new InvalidDataException($"Invalid response line: {responseLine.GetAsciiStringEscaped()}");
         }
@@ -389,16 +392,16 @@ internal sealed class SazToHarConverter : IDisposable
         {
             this.UnchunkContent(
                 ref httpMessageBytes,
-                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(HttpUtilities.transferEncodignAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
+                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(TransferEncodignAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
 
             this.DecompressContent(
                 ref httpMessageBytes,
-                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(HttpUtilities.contentEncodignAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
+                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(ContentEncodignAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
 
             this.WriteContent(
                 outputJsonWriter,
                 httpMessageBytes,
-                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(HttpUtilities.contentTypeAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
+                httpHeaders.LastOrDefault(h => h.Key.Span.SequenceEqual(ContentTypeAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)).Value.Span);
         }
 #pragma warning disable CA1031 // Do not catch general exception types
         catch (Exception ex)
@@ -418,7 +421,7 @@ internal sealed class SazToHarConverter : IDisposable
 
         while (true)
         {
-            var idx = httpMessageBytes.Span.IndexOf(HttpUtilities.singleLineBreakBytes);
+            var idx = httpMessageBytes.Span.IndexOf(SingleLineBreakBytes);
 
             if (idx < 0)
             {
@@ -434,7 +437,7 @@ internal sealed class SazToHarConverter : IDisposable
             var header = httpMessageBytes[..idx];
             httpMessageBytes = httpMessageBytes[(idx + 2)..];
 
-            idx = header.Span.IndexOfAny(HttpUtilities.ByteColon, HttpUtilities.ByteSpace, HttpUtilities.ByteTab);
+            idx = header.Span.IndexOfAny(ByteColon, ByteSpace, ByteTab);
 
             if (idx < 1 || idx >= header.Span.Length)
             {
@@ -443,7 +446,7 @@ internal sealed class SazToHarConverter : IDisposable
 
             var name = header[..idx];
 
-            var value = header[(idx + 1)..].Trim<byte>(HttpUtilities.whiteSpaceBytes);
+            var value = header[(idx + 1)..].Trim<byte>(WhiteSpaceBytes);
 
             httpHeadersList.Add(new(name, value));
         }
@@ -452,18 +455,19 @@ internal sealed class SazToHarConverter : IDisposable
     private void UnchunkContent(ref ReadOnlyMemory<byte> httpMessageBytes, ReadOnlySpan<byte> transferEncodingBytes)
     {
         if (httpMessageBytes.IsEmpty || transferEncodingBytes.IsEmpty
-            || !transferEncodingBytes.SequenceEqual(HttpUtilities.chunkedAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+            || !transferEncodingBytes.SequenceEqual(ChunkedAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
         {
             return;
         }
 
-        var messageStream = this.GetAuxStream();
+        var messageStream = this.GetMemoryStream();
+        var start = messageStream.Length;
         var bytes = httpMessageBytes.Span;
 
         for (var chunkStart = 0; chunkStart < bytes.Length - 3;)
         {
             var i = chunkStart;
-            while (i < bytes.Length - 3 && bytes[i] != HttpUtilities.ByteCR && bytes[i] != HttpUtilities.ByteLF)
+            while (i < bytes.Length - 3 && bytes[i] != ByteCR && bytes[i] != ByteLF)
             {
                 i++;
             }
@@ -473,7 +477,7 @@ internal sealed class SazToHarConverter : IDisposable
                 throw new InvalidDataException($"HTTP Error: The chunked content is corrupt. Cannot find Chunk-Length in expected location. Offset: {chunkStart}");
             }
 
-            var chars = HttpUtilities.GetAsciiString(bytes[chunkStart..i]);
+            var chars = bytes[chunkStart..i].GetAsciiString();
             chunkStart = i + 2;
 
             if (!int.TryParse(TrimAfter(chars, ';'), NumberStyles.HexNumber, NumberFormatInfo.InvariantInfo, out var chunkLength))
@@ -483,7 +487,7 @@ internal sealed class SazToHarConverter : IDisposable
 
             if (chunkLength == 0)
             {
-                httpMessageBytes = messageStream.AsReadOnlyMemory();
+                httpMessageBytes = messageStream.AsReadOnlyMemory((int)start);
                 return;
             }
 
@@ -492,7 +496,7 @@ internal sealed class SazToHarConverter : IDisposable
                 throw new InvalidDataException("HTTP Error: The chunked entity body is corrupt. The final chunk length is greater than the number of bytes remaining.");
             }
 
-            messageStream.Write(bytes[chunkStart..(chunkStart + chunkLength)]);
+            messageStream.Write(bytes.Slice(chunkStart, chunkLength));
             chunkStart += chunkLength + 2;
         }
 
@@ -507,68 +511,67 @@ internal sealed class SazToHarConverter : IDisposable
 
     private void DecompressContent(ref ReadOnlyMemory<byte> httpMessageBytes, ReadOnlySpan<byte> contentEncodingBytes)
     {
-        if (contentEncodingBytes.IsEmpty)
+        if (contentEncodingBytes.IsEmpty
+            || contentEncodingBytes.SequenceEqual(IdentityContentEncodingAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
         {
             return;
         }
 
-        if (contentEncodingBytes.SequenceEqual(HttpUtilities.gzipAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+        if (contentEncodingBytes.SequenceEqual(GZzipContentEncodingAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
         {
-            var sourceStream = this.GetEncodedStream(httpMessageBytes);
-            var messageStream = this.GetAuxStream();
+            var sourceStream = httpMessageBytes.AsStream();
 
             try
             {
-                DecompressGZipContent(sourceStream, messageStream);
+                httpMessageBytes = this.DecompressGZipContent(sourceStream);
             }
             catch (InvalidDataException)
             {
                 sourceStream.Position = 0;
-                DeflateDeflateContent(sourceStream, messageStream);
+                httpMessageBytes = this.DeflateDeflateContent(sourceStream);
             }
-
-            httpMessageBytes = messageStream.AsReadOnlyMemory();
         }
-        else if (contentEncodingBytes.SequenceEqual(HttpUtilities.deflateAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+        else if (contentEncodingBytes.SequenceEqual(DeflateContentEncodingAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
         {
-            var sourceStream = this.GetEncodedStream(httpMessageBytes);
-            var messageStream = this.GetAuxStream();
+            var sourceStream = httpMessageBytes.AsStream();
 
-            DeflateDeflateContent(sourceStream, messageStream);
-
-            httpMessageBytes = messageStream.AsReadOnlyMemory();
+            httpMessageBytes = this.DeflateDeflateContent(sourceStream);
         }
-        else if (contentEncodingBytes.SequenceEqual(HttpUtilities.brotliAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
+        else if (contentEncodingBytes.SequenceEqual(BrotliContentEncodingAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance))
         {
-            var sourceStream = this.GetEncodedStream(httpMessageBytes);
-            var messageStream = this.GetAuxStream();
+            var sourceStream = httpMessageBytes.AsStream();
 
-            DecompressBrotliContent(sourceStream, messageStream);
-
-            httpMessageBytes = messageStream.AsReadOnlyMemory();
+            httpMessageBytes = this.DecompressBrotliContent(sourceStream);
         }
         else
         {
-            throw new InvalidDataException($"Unsupported compression method: {HttpUtilities.GetAsciiString(contentEncodingBytes)}");
+            throw new InvalidDataException($"Unsupported compression method: {contentEncodingBytes.GetAsciiString()}");
         }
     }
 
-    private static void DecompressGZipContent(MemoryStream sourceStream, MemoryStream messageStream)
+    private ReadOnlyMemory<byte> DecompressGZipContent(Stream sourceStream)
     {
         using var compressed = new GZipStream(sourceStream, CompressionMode.Decompress, true);
-        compressed.CopyTo(messageStream);
+        return this.CopyStreamToMemory(compressed);
     }
 
-    private static void DeflateDeflateContent(MemoryStream sourceStream, MemoryStream messageStream)
+    private ReadOnlyMemory<byte> DeflateDeflateContent(Stream sourceStream)
     {
         using var compressed = new DeflateStream(sourceStream, CompressionMode.Decompress, true);
-        compressed.CopyTo(messageStream);
+        return this.CopyStreamToMemory(compressed);
     }
 
-    private static void DecompressBrotliContent(MemoryStream sourceStream, MemoryStream messageStream)
+    private ReadOnlyMemory<byte> DecompressBrotliContent(Stream sourceStream)
     {
         using var compressed = new BrotliStream(sourceStream, CompressionMode.Decompress, true);
-        compressed.CopyTo(messageStream);
+        return this.CopyStreamToMemory(compressed);
+    }
+
+    private ReadOnlyMemory<byte> CopyStreamToMemory(Stream source)
+    {
+        var start = this.memory!.Position = this.memory!.Length;
+        source.CopyTo(this.memory);
+        return new(this.memory.GetBuffer(), (int)start, (int)(this.memory.Length - start));
     }
 
     private static void WriteHttpHeaders(Utf8JsonWriter outputJsonWriter, List<KeyValuePair<ReadOnlyMemory<byte>, ReadOnlyMemory<byte>>> httpHeaders)
@@ -650,20 +653,20 @@ internal sealed class SazToHarConverter : IDisposable
 
         if (!contentTypeDefinitionBytes.IsEmpty)
         {
-            contentTypeDefinitionBytes.TryReadTo(out var contentTypeBytes, HttpUtilities.ByteSemicolon, true, true);
-            contentTypeBytes = contentTypeBytes.Trim(HttpUtilities.whiteSpaceBytes);
+            contentTypeDefinitionBytes.TryReadTo(out var contentTypeBytes, ByteSemicolon, true, true);
+            contentTypeBytes = contentTypeBytes.Trim(WhiteSpaceBytes);
 
             var encoding = Encoding.UTF8;
 
             var isForm = false;
 
-            if (contentTypeBytes.SequenceEqual(HttpUtilities.textContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
-                || contentTypeBytes.SequenceEqual(HttpUtilities.applicationJsonContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
-                || contentTypeBytes.SequenceEqual(HttpUtilities.applicationJsonStreamContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
-                || contentTypeBytes.SequenceEqual(HttpUtilities.applicationXmlContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
-                || (isForm = contentTypeBytes.SequenceEqual(HttpUtilities.applicationFormEncodedContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)))
+            if (contentTypeBytes.SequenceEqual(TextContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
+                || contentTypeBytes.SequenceEqual(ApplicationJsonContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
+                || contentTypeBytes.SequenceEqual(ApplicationJsonStreamContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
+                || contentTypeBytes.SequenceEqual(ApplicationXmlContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)
+                || (isForm = contentTypeBytes.SequenceEqual(ApplicationFormEncodedContentTypePreffixAsciiBytes, CaseInsensitiveAsciiByteEqualityComparer.Instance)))
             {
-                contentTypeDefinitionBytes = contentTypeDefinitionBytes.Trim(HttpUtilities.whiteSpaceBytes);
+                contentTypeDefinitionBytes = contentTypeDefinitionBytes.Trim(WhiteSpaceBytes);
 
                 if (!contentTypeDefinitionBytes.IsEmpty)
                 {
@@ -698,18 +701,16 @@ internal sealed class SazToHarConverter : IDisposable
             var inputBlocks = Math.DivRem(httpMessageBytesSpan.Length, 3, out var inputRemainder);
             var outputBytes = (inputBlocks + (inputRemainder != 0 ? 1 : 0)) * 4;
 
-            var stream = this.GetAuxStream();
-            stream.Capacity = Math.Max(outputBytes, stream.Capacity);
+            var output = this.GetMemory(outputBytes);
 
-            var output = stream.GetBuffer().AsMemory((int)stream.Position, (int)(stream.Capacity - stream.Position));
             var status = Base64.EncodeToUtf8(httpMessageBytesSpan, output.Span, out var bytesConsumed, out var bytesWritten);
 
             Debug.Assert(bytesWritten == outputBytes);
             Debug.Assert(status == OperationStatus.Done);
             Debug.Assert(bytesConsumed == httpMessageBytesSpan.Length);
 
-            outputJsonWriter.WriteStringValue(stream.AsReadOnlyMemory(0, bytesWritten).Span);
-            outputJsonWriter.WriteString("encoded", "base64");
+            outputJsonWriter.WriteStringValue(output.Span);
+            outputJsonWriter.WriteString("encoding", "base64");
         }
         else
         {
@@ -755,38 +756,43 @@ internal sealed class SazToHarConverter : IDisposable
         return httpMessageBytes;
     }
 
+    private void InitMemory()
+    {
+        var buffer = this.memory ??= new(0x20000);
+        buffer.SetLength(0);
+    }
+
+    private Memory<byte> GetMemory(int size)
+    {
+        var memoryStream = this.memory!;
+        var finalLength = memoryStream.Length + size;
+
+        if (memoryStream.Capacity < finalLength)
+        {
+            memoryStream.Capacity = (int)(((finalLength + 0x1FFFFL) / 0x20000L) * 0x20000L);
+        }
+
+        var memory = memoryStream.AsMemory((int)memoryStream.Length, size);
+
+        memoryStream.SetLength(finalLength);
+        memoryStream.Position = finalLength;
+
+        return memory;
+    }
+
+    private MemoryStream GetMemoryStream()
+    {
+        this.memory!.Position = this.memory!.Length;
+        return this.memory!;
+    }
+
     private MemoryStream GetHttpMessageStream(ZipEntry zipEntry)
     {
-        var buffer = this.messageStream ??= new(0x20000);
-        buffer.SetLength(0);
+        var buffer = this.GetMemoryStream();
 
         using var zipStream = zipEntry.OpenReader();
 
         zipStream.CopyTo(buffer);
-
-        buffer.Position = 0;
-
-        return buffer;
-    }
-
-    private MemoryStream GetAuxStream()
-    {
-        var buffer = this.auxStream ??= new(0x20000);
-
-        buffer.SetLength(0);
-
-        buffer.Position = 0;
-
-        return buffer;
-    }
-
-    private MemoryStream GetEncodedStream(ReadOnlyMemory<byte> compressedBytes)
-    {
-        var buffer = this.encodedStream ??= new(0x20000);
-
-        buffer.SetLength(0);
-
-        buffer.Write(compressedBytes.Span);
 
         buffer.Position = 0;
 
@@ -802,8 +808,7 @@ internal sealed class SazToHarConverter : IDisposable
                 // dispose managed state (managed objects)
 
                 this.zipFile?.Dispose();
-                this.messageStream?.Dispose();
-                this.encodedStream?.Dispose();
+                this.memory?.Dispose();
             }
 
             // free unmanaged resources (unmanaged objects) and override finalizer
@@ -811,8 +816,7 @@ internal sealed class SazToHarConverter : IDisposable
 
 #pragma warning disable CS8625 // Cannot convert null literal to non-nullable reference type.
             this.zipFile = null;
-            this.messageStream = null;
-            this.encodedStream = null;
+            this.memory = null;
 #pragma warning restore CS8625 // Cannot convert null literal to non-nullable reference type.
 
             this.isDisposed = true;
