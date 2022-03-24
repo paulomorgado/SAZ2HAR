@@ -8,12 +8,11 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Net;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Xml;
 using static PauloMorgado.Tools.SazToHar.HttpUtilities;
 
 namespace PauloMorgado.Tools.SazToHar;
@@ -194,8 +193,6 @@ internal sealed class SazToHarConverter : IDisposable
     {
         outputJsonWriter.WriteStartObject();
 
-        outputJsonWriter.WriteString("comment", $"[#{frameId}]");
-
         if (this.frames.TryGetValue(frameId, out var frame))
         {
             this.InitMemory();
@@ -205,6 +202,8 @@ internal sealed class SazToHarConverter : IDisposable
             this.InitMemory();
 
             this.WriteResponse(outputJsonWriter, frame.server);
+
+            WriteMetadata(outputJsonWriter, frame.metadata, frameId);
         }
 
         outputJsonWriter.WriteEndObject();
@@ -412,6 +411,130 @@ internal sealed class SazToHarConverter : IDisposable
 #pragma warning restore CA1031 // Do not catch general exception types
 
         outputJsonWriter.WriteEndObject();
+    }
+
+    private static void WriteMetadata(Utf8JsonWriter outputJsonWriter, ZipEntry metadata, int frameId)
+    {
+        using var zipStream = metadata.OpenReader();
+        using var xmlReader = XmlReader.Create(zipStream);
+
+        var comment = default(string);
+
+        if (xmlReader.ReadToDescendant("Session"))
+        {
+            if (xmlReader.ReadToDescendant("SessionTimers"))
+            {
+                if (xmlReader.MoveToFirstAttribute())
+                {
+                    var clientBeginRequest = default(DateTimeOffset?);
+                    var blocked = default(long?);
+                    var dnsTime = default(long?);
+                    var tcpConnectTime = default(long?);
+                    var httpsHandshakeTime = default(long?);
+                    var fiddlerBeginRequest = default(DateTimeOffset?);
+                    var serverGotRequest = default(DateTimeOffset?);
+                    var serverBeginResponse = default(DateTimeOffset?);
+                    var serverDoneResponse = default(DateTimeOffset?);
+
+                    do
+                    {
+                        switch (xmlReader.Name)
+                        {
+                            case "ClientBeginRequest": clientBeginRequest = ReadContentAsDateTimeOffset(xmlReader); break;
+                            case "DNSTime": dnsTime = xmlReader.ReadContentAsLong(); break;
+                            case "TCPConnectTime": tcpConnectTime = xmlReader.ReadContentAsLong(); break;
+                            case "HTTPSHandshakeTime": httpsHandshakeTime = xmlReader.ReadContentAsLong(); break;
+                            case "FiddlerBeginRequest": fiddlerBeginRequest = ReadContentAsDateTimeOffset(xmlReader); break;
+                            case "ServerGotRequest": serverGotRequest = ReadContentAsDateTimeOffset(xmlReader); break;
+                            case "ServerBeginResponse": serverBeginResponse = ReadContentAsDateTimeOffset(xmlReader); break;
+                            case "ServerDoneResponse": serverDoneResponse = ReadContentAsDateTimeOffset(xmlReader); break;
+                        }
+
+                        static DateTimeOffset? ReadContentAsDateTimeOffset(XmlReader xmlReader)
+                        {
+                            var value = xmlReader.ReadContentAsDateTimeOffset();
+                            return value == DateTimeOffset.MinValue ? null : value;
+                        }
+                    }
+                    while (xmlReader.MoveToNextAttribute());
+
+                    var connect = tcpConnectTime.GetValueOrDefault() + httpsHandshakeTime.GetValueOrDefault();
+                    var send = (serverGotRequest - fiddlerBeginRequest)?.Ticks / TimeSpan.TicksPerMillisecond;
+                    var wait = (serverBeginResponse - serverGotRequest)?.Ticks / TimeSpan.TicksPerMillisecond;
+                    var receive = (serverDoneResponse - serverBeginResponse)?.Ticks / TimeSpan.TicksPerMillisecond;
+                    var totalTime = blocked.GetValueOrDefault() + dnsTime.GetValueOrDefault() + connect + send.GetValueOrDefault() + wait.GetValueOrDefault() + receive.GetValueOrDefault();
+
+                    if (clientBeginRequest.HasValue)
+                    {
+                        outputJsonWriter.WriteString("startedDateTime", clientBeginRequest.GetValueOrDefault().ToString("o"));
+                    }
+
+                    outputJsonWriter.WriteNumber("time", totalTime);
+
+                    outputJsonWriter.WriteStartObject("timings");
+                    outputJsonWriter.WriteNumber("blocked", blocked.GetValueOrDefault(-1));
+                    outputJsonWriter.WriteNumber("ssl", httpsHandshakeTime.GetValueOrDefault());
+                    outputJsonWriter.WriteNumber("receive", receive.GetValueOrDefault());
+                    outputJsonWriter.WriteNumber("wait", wait.GetValueOrDefault());
+                    outputJsonWriter.WriteNumber("dns", dnsTime.GetValueOrDefault());
+                    outputJsonWriter.WriteNumber("send", send.GetValueOrDefault());
+                    outputJsonWriter.WriteNumber("connect", connect);
+                    outputJsonWriter.WriteEndObject();
+                }
+            }
+
+            if (xmlReader.ReadToNextSibling("SessionFlags"))
+            {
+                if (xmlReader.ReadToDescendant("SessionFlag"))
+                {
+                    var egressPort = default(string);
+                    var clientPort = default(string);
+
+                    do
+                    {
+                        switch (xmlReader.GetAttribute("N"))
+                        {
+                            case "x-egressport":
+                                if (xmlReader.GetAttribute("V") is { Length: > 0 } xEgressPort)
+                                {
+                                    egressPort = xEgressPort;
+                                }
+
+                                break;
+                            case "x-clientport":
+                                if (xmlReader.GetAttribute("V") is { Length: > 0 } xClientPort)
+                                {
+                                    clientPort = xClientPort;
+                                }
+
+                                break;
+                            case "x-hostip":
+                                if (xmlReader.GetAttribute("V") is { Length: > 0 } serverIPAddress)
+                                {
+                                    outputJsonWriter.WriteString("serverIPAddress", serverIPAddress);
+                                }
+
+                                break;
+                            case "ui-comments":
+                                if (xmlReader.GetAttribute("V") is { Length: > 0 } uiComments)
+                                {
+                                    comment = uiComments;
+                                }
+
+                                break;
+                        }
+                    }
+                    while (xmlReader.ReadToNextSibling("SessionFlag"));
+
+                    if (!string.IsNullOrEmpty(clientPort))
+                    {
+                        outputJsonWriter.WriteString("connection", string.IsNullOrEmpty(egressPort) ? $"ClientPort:{clientPort}" : $"ClientPort:{clientPort};EgressPort:{egressPort}");
+                    }
+                }
+            }
+        }
+
+        outputJsonWriter.WriteString("comment", comment ?? $"[#{frameId}]");
     }
 
     private List<KeyValuePair<ReadOnlyMemory<byte>, ReadOnlyMemory<byte>>> ParseHttpHeaders(ref ReadOnlyMemory<byte> httpMessageBytes)
