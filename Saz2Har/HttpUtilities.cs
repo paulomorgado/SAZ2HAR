@@ -168,7 +168,7 @@ internal static  class HttpUtilities
 
     public static ReadOnlySpan<char> UnescapeDataString(this ReadOnlySpan<char> chars)
     {
-        if (chars.Length < 16 && chars.IndexOfAny('%', '+') < 0)
+        if (chars.IndexOfAny('%', '+') < 0)
         {
             return chars;
         }
@@ -189,7 +189,6 @@ internal static  class HttpUtilities
                 {
                     result[length++] = (char)((h1 << 4) + h2);
                     i += 2;
-                    break;
                 }
             }
             else
